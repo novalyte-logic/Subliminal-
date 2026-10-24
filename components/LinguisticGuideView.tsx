@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { QuantumGlossary } from './QuantumGlossary';
 import {
   BookOpen,
   CheckCircle2,
@@ -60,6 +61,10 @@ export const LinguisticGuideView: React.FC = () => {
           Why traditional positive thinking often fails—and how quantum observer language, somatic anchors,
           and high-frequency acoustics permanently rewire subconscious neuroplasticity.
         </p>
+      </div>
+
+      <div className="mb-12">
+        <QuantumGlossary />
       </div>
 
       {/* 3 Foundation Cards */}

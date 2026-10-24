@@ -34,6 +34,26 @@ export const ResonanceLibrary: React.FC<ResonanceLibraryProps> = ({
   activeId,
 }) => {
   const [exportingAffirmation, setExportingAffirmation] = React.useState<QuantumAffirmationResult | null>(null);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const playSelected = () => {
+    const toPlay = library.filter((item) => selectedIds.has(item.id));
+    // Implementation of simultaneous playback would go here, 
+    // requiring AudioPlayerBar to support an array of affirmations.
+    // For now, we simulate simultaneous by playing them in quick succession.
+    toPlay.forEach((item, index) => {
+      setTimeout(() => onPlayAffirmation(item), index * 100);
+    });
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-32">
@@ -52,23 +72,35 @@ export const ResonanceLibrary: React.FC<ResonanceLibraryProps> = ({
           </p>
         </div>
 
-        {library.length > 1 && (
-          <button
-            onClick={onPlayContinuous}
-            className={`px-5 py-3 rounded-xl font-semibold text-[13px] flex items-center space-x-2 shadow-xs transition-all ${
-              isPlayingContinuous
-                ? 'bg-[#005F58] text-white ring-2 ring-[#2DD4BF]'
-                : 'bg-[#009B87] hover:bg-[#007F73] text-white'
-            }`}
-          >
-            <Repeat className="w-4 h-4" />
-            <span>
-              {isPlayingContinuous
-                ? 'Continuous Sequence Active'
-                : 'Play Continuous Quantum Sequence'}
-            </span>
-          </button>
-        )}
+        <div className="flex items-center space-x-2">
+          {selectedIds.size > 0 && (
+            <button
+              onClick={playSelected}
+              className="px-5 py-3 rounded-xl font-semibold text-[13px] bg-[#005F58] hover:bg-[#007F73] text-white shadow-xs transition-all flex items-center space-x-2"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              <span>Play {selectedIds.size} Simultaneously</span>
+            </button>
+          )}
+
+          {library.length > 1 && (
+            <button
+              onClick={onPlayContinuous}
+              className={`px-5 py-3 rounded-xl font-semibold text-[13px] flex items-center space-x-2 shadow-xs transition-all ${
+                isPlayingContinuous
+                  ? 'bg-[#005F58] text-white ring-2 ring-[#2DD4BF]'
+                  : 'bg-[#009B87] hover:bg-[#007F73] text-white'
+              }`}
+            >
+              <Repeat className="w-4 h-4" />
+              <span>
+                {isPlayingContinuous
+                  ? 'Continuous Sequence Active'
+                  : 'Play Continuous Quantum Sequence'}
+              </span>
+            </button>
+          )}
+        </div>
       </div>
 
       {library.length === 0 ? (
@@ -86,13 +118,16 @@ export const ResonanceLibrary: React.FC<ResonanceLibraryProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {library.map((item, index) => {
             const isActive = activeId === item.id;
+            const isSelected = selectedIds.has(item.id);
             return (
               <div
                 key={item.id}
                 className={`bg-[#FFFFFF] p-5 rounded-2xl border transition-all flex flex-col justify-between ${
                   isActive
                     ? 'border-[#009B87] shadow-[0_4px_16px_rgba(0,155,135,0.12)] ring-2 ring-[#2DD4BF]/40'
-                    : 'border-[#E5E9E7] hover:border-[#2DD4BF]/50 shadow-[0_1px_3px_rgba(16,24,40,0.04)]'
+                    : isSelected 
+                      ? 'border-[#2DD4BF] shadow-[0_4px_16px_rgba(45,212,191,0.1)]'
+                      : 'border-[#E5E9E7] hover:border-[#2DD4BF]/50 shadow-[0_1px_3px_rgba(16,24,40,0.04)]'
                 }`}
               >
                 <div>
@@ -102,9 +137,12 @@ export const ResonanceLibrary: React.FC<ResonanceLibraryProps> = ({
                       <Radio className="w-3 h-3 text-[#2DD4BF]" />
                       <span>{item.frequencyHz} Hz</span>
                     </div>
-                    <span className="text-[#89919B] font-medium uppercase text-[10px] tracking-wider">
-                      {item.paradigm}
-                    </span>
+                    <input 
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(item.id)}
+                      className="w-4 h-4 accent-[#009B87]"
+                    />
                   </div>
 
                   {/* Transmuted Affirmation */}

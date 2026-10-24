@@ -12,9 +12,18 @@ import {
   Headphones,
   Repeat,
   FileAudio,
+  CloudRain,
+  Moon,
+  Sun,
+  Zap,
 } from 'lucide-react';
 import { QuantumAffirmationResult, SOLFEGGIO_FREQUENCIES } from '@/lib/quantum-engine';
 import { renderMasterWav } from '@/lib/wav-export';
+import {
+  BINAURAL_BEAT_PRESETS,
+  BrainwaveBand,
+  getBrainwavePreset,
+} from '@/lib/binaural-beats';
 
 interface ExportWavModalProps {
   isOpen: boolean;
@@ -23,6 +32,9 @@ interface ExportWavModalProps {
   defaultVoiceVolume?: number;
   defaultCarrierVolume?: number;
   defaultCarrierEnabled?: boolean;
+  defaultBinauralBand?: BrainwaveBand;
+  defaultIncludeRain?: boolean;
+  defaultRainVolume?: number;
 }
 
 export const ExportWavModal: React.FC<ExportWavModalProps> = ({
@@ -32,11 +44,17 @@ export const ExportWavModal: React.FC<ExportWavModalProps> = ({
   defaultVoiceVolume = 0.95,
   defaultCarrierVolume = 0.25,
   defaultCarrierEnabled = true,
+  defaultBinauralBand = 'theta',
+  defaultIncludeRain = false,
+  defaultRainVolume = 0.25,
 }) => {
   const [includeVoice, setIncludeVoice] = useState(true);
   const [includeCarrier, setIncludeCarrier] = useState(defaultCarrierEnabled);
   const [voiceVolume, setVoiceVolume] = useState(defaultVoiceVolume);
   const [carrierVolume, setCarrierVolume] = useState(defaultCarrierVolume);
+  const [binauralBand, setBinauralBand] = useState<BrainwaveBand>(defaultBinauralBand);
+  const [includeRain, setIncludeRain] = useState(defaultIncludeRain);
+  const [rainVolume, setRainVolume] = useState(defaultRainVolume);
   const [repeatCount, setRepeatCount] = useState<number>(3); // Default 3 cycles
   const [isRendering, setIsRendering] = useState(false);
   const [renderingStep, setRenderingStep] = useState<string>('');
@@ -78,16 +96,19 @@ export const ExportWavModal: React.FC<ExportWavModalProps> = ({
       }
 
       // 2. Render combined master audio
+      const selectedBinaural = getBrainwavePreset(binauralBand);
       setRenderingStep(
-        `Compositing ${affirmation.frequencyHz}Hz Solfeggio tone bed with spoken voice...`
+        `Compositing ${affirmation.frequencyHz}Hz Solfeggio tone (${selectedBinaural.hz}Hz ${selectedBinaural.name} binaural) + ${includeRain ? 'crisp rainfall + ' : ''}spoken voice...`
       );
 
       const result = await renderMasterWav({
         voiceBase64Wav: voiceBase64,
         frequencyHz: affirmation.frequencyHz,
-        binauralDifference: freqObj.binauralDifference,
+        binauralDifference: selectedBinaural.hz,
         voiceVolume: includeVoice ? voiceVolume : 0,
         carrierVolume: includeCarrier ? carrierVolume : 0,
+        includeRain,
+        rainVolume: includeRain ? rainVolume : 0,
         repeatCount,
         sampleRate: 44100,
         estimatedDurationSeconds: affirmation.estimatedDurationSeconds,
@@ -215,14 +236,78 @@ export const ExportWavModal: React.FC<ExportWavModalProps> = ({
                   step="0.02"
                   value={carrierVolume}
                   onChange={(e) => setCarrierVolume(parseFloat(e.target.value))}
-                  className="w-full h-1.5 accent-[#2DD4BF] cursor-pointer mb-2"
+                  className="w-full h-1.5 accent-[#2DD4BF] cursor-pointer mb-3"
                 />
-                <div className="flex items-center space-x-1.5 text-[11px] text-[#626B78] font-medium">
-                  <Headphones className="w-3.5 h-3.5 text-[#009B87]" />
-                  <span>
-                    Includes stereo binaural detune (+{freqObj.binauralDifference}Hz Schumann alpha)
-                  </span>
+                
+                {/* Binaural Beat Modulation Selector */}
+                <div className="pt-2 border-t border-[#EEF1EF]">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-semibold text-[#171D27] flex items-center space-x-1">
+                      <Headphones className="w-3.5 h-3.5 text-[#009B87]" />
+                      <span>Binaural Brainwave Entrainment</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-[#009B87] bg-[#EAFBF5] px-1.5 py-0.5 rounded">
+                      +{getBrainwavePreset(binauralBand).hz}Hz Detune
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    {BINAURAL_BEAT_PRESETS.map((preset) => {
+                      const isSelected = binauralBand === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => setBinauralBand(preset.id)}
+                          className={`p-2 rounded-lg border text-left transition-all ${
+                            isSelected
+                              ? 'bg-[#EAFBF5] border-[#009B87] text-[#009B87] shadow-2xs font-bold'
+                              : 'bg-white border-[#EEF1EF] text-[#626B78] hover:bg-[#FAF9F6]'
+                          }`}
+                        >
+                          <div className="text-[11px] leading-tight">{preset.name}</div>
+                          <div className="text-[9px] text-[#89919B] mt-0.5">{preset.hz}Hz • {preset.state.split(' ')[0]}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+              </>
+            )}
+          </div>
+
+          {/* Crisp Rainfall Sound Bed Track */}
+          <div className="p-3 rounded-xl bg-[#FAF9F6] border border-[#EEF1EF]">
+            <div className="flex items-center justify-between mb-2">
+              <label className="flex items-center space-x-2 text-[13px] font-semibold text-[#171D27] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeRain}
+                  onChange={(e) => setIncludeRain(e.target.checked)}
+                  className="rounded text-[#009B87] focus:ring-[#009B87] accent-[#009B87]"
+                />
+                <div className="flex items-center space-x-1.5">
+                  <CloudRain className="w-4 h-4 text-[#009B87]" />
+                  <span>Crisp Rainfall Nature Sound Bed</span>
+                </div>
+              </label>
+              <span className="text-[11px] font-mono text-[#009B87] font-semibold">
+                {includeRain ? `${Math.round(rainVolume * 100)}%` : 'Muted'}
+              </span>
+            </div>
+            {includeRain && (
+              <>
+                <input
+                  type="range"
+                  min="0.05"
+                  max="0.8"
+                  step="0.05"
+                  value={rainVolume}
+                  onChange={(e) => setRainVolume(parseFloat(e.target.value))}
+                  className="w-full h-1.5 accent-[#009B87] cursor-pointer mb-2"
+                />
+                <p className="text-[10px] text-[#626B78]">
+                  Algorithmic stereo pink noise with micro-droplet transients to mask ambient auditory distractions
+                </p>
               </>
             )}
           </div>

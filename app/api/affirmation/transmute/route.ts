@@ -15,6 +15,8 @@ export async function POST(req: NextRequest) {
       paradigm = "timeline-collapse",
       frequencyHz = 528,
       emotionalMultiplier = "Sovereign Inevitability",
+      mood = "motivated",
+      intensity = "moderate",
     } = body;
 
     if (!originalText || typeof originalText !== "string" || !originalText.trim()) {
@@ -46,21 +48,24 @@ The user provided a raw, traditional affirmation or manifestation desire:
 Target Frequency: ${freqObj.hz} Hz (${freqObj.name} - ${freqObj.harmonicPurpose})
 Quantum Paradigm: ${paradigm}
 Emotional Multiplier: ${emotionalMultiplier}
+Current Mood: ${mood}
+Intensity: ${intensity}
 
 TASK:
-Transmute this affirmation into a high-impact "Quantum Leap Language" affirmation.
+Transmute this affirmation into a high-impact "Quantum Leap Language" affirmation, tailoring it specifically to shift the user's current mood (${mood}) to a higher-frequency state, with ${intensity} intensity.
+
 Linguistic Requirements:
-1. QUANTUM CERTAINTY: Eliminate ALL passive, future, or yearning phrasing ("I want", "I hope", "I will", "I am trying", "I wish"). Replace with present-tense quantum collapse, zero-point certainty, or sovereign observer decrees ("I collapse the probability into physical coordinate now", "My neuromuscular network electrifies at ${freqObj.hz}Hz...", "By sovereign decree, infinite wealth crystallizes...").
+1. QUANTUM CERTAINTY: Eliminate ALL passive, future, or yearning phrasing ("I want", "I hope", "I will", "I am trying", "I wish"). Replace with present-tense quantum collapse, zero-point certainty, or sovereign observer decrees.
 2. HIGH-FREQUENCY VOCABULARY: Weave in high-resonance bio-energetic concepts: electromagnetic coherence, zero-point field, cellular crystallization, mitochondrial vitality, unshakeable sovereignty, timeline lock.
 3. RHYTHMIC CADENCE: Format with balanced rhythmic breath pauses. It should sound like a resonant, rhythmic incantation when spoken aloud.
-4. SOMATIC ANCHOR: Provide a concrete, 1-2 sentence physical bodily sensation and breath practice (e.g. tongue position, vagus nerve relaxation, solar plexus warmth, chest expansion) to anchor this affirmation into the cellular biology.
-5. LINGUISTIC SHIFT ANALYSIS: 1-2 sentences explaining specifically why this Quantum Leap phrasing bypasses subconscious cognitive friction/skepticism 10x faster than traditional affirmations.
+4. SOMATIC ANCHOR: Provide a concrete, 1-2 sentence physical bodily sensation and breath practice to anchor this affirmation.
+5. LINGUISTIC SHIFT ANALYSIS: 1-2 sentences explaining specifically why this Quantum Leap phrasing bypasses subconscious cognitive friction/skepticism 10x faster than traditional affirmations, specifically addressing the user's mood (${mood}).
 
 Respond ONLY with valid JSON in this exact structure:
 {
   "quantumText": "The transmuted high-frequency quantum leap affirmation text",
   "somaticAnchor": "Concrete breath cue and physical sensation instruction",
-  "linguisticShiftAnalysis": "Explanation of psychological/quantum shift from raw to transmuted",
+  "linguisticShiftAnalysis": "Explanation of psychological/quantum shift",
   "meterStyle": "e.g. Resonant Iambic Surge or Sovereign Harmonic Cadence"
 }
 `;

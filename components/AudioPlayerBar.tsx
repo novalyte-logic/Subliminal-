@@ -13,12 +13,20 @@ import {
   Sliders,
   ChevronDown,
   ChevronUp,
+  Moon,
+  Headphones,
+  CloudRain,
 } from 'lucide-react';
 import { QuantumAffirmationResult } from '@/lib/quantum-engine';
 import { globalSolfeggioSynth } from '@/lib/audio-player';
 import { AudioVisualizerCanvas } from './AudioVisualizerCanvas';
 import { ExportWavModal } from './ExportWavModal';
 import { ReactiveAmplitudeVisualizer } from './ReactiveAmplitudeVisualizer';
+import { QuantumBreathingOrb } from './QuantumBreathingOrb';
+import { QuantumSleepTimerModal } from './QuantumSleepTimerModal';
+import { AudioSettingsModal } from './AudioSettingsModal';
+import { formatSleepCountdown, calculateFadeVolumeFactor } from '@/lib/sleep-timer';
+import { BrainwaveBand, getBrainwavePreset } from '@/lib/binaural-beats';
 
 interface AudioPlayerBarProps {
   currentAffirmation: QuantumAffirmationResult | null;
@@ -34,8 +42,18 @@ interface AudioPlayerBarProps {
   setLoopMode: (loop: boolean) => void;
   playbackSpeed: number;
   setPlaybackSpeed: (speed: number) => void;
+  binauralBand?: BrainwaveBand;
+  setBinauralBand?: (band: BrainwaveBand) => void;
+  isRainEnabled?: boolean;
+  setIsRainEnabled?: (enabled: boolean) => void;
+  rainVolume?: number;
+  setRainVolume?: (vol: number) => void;
   onRequestSpeechGen?: () => Promise<void>;
   isGeneratingAudio?: boolean;
+  hrvBpm?: number;
+  setHrvBpm?: (bpm: number) => void;
+  hrvSyncEnabled?: boolean;
+  setHrvSyncEnabled?: (enabled: boolean) => void;
 }
 
 const formatTime = (secs: number) => {
@@ -58,16 +76,87 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   setLoopMode,
   playbackSpeed,
   setPlaybackSpeed,
+  binauralBand = 'theta',
+  setBinauralBand = () => {},
+  isRainEnabled = false,
+  setIsRainEnabled = () => {},
+  rainVolume = 0.25,
+  setRainVolume = () => {},
   onRequestSpeechGen,
   isGeneratingAudio = false,
+  hrvBpm = 5.5,
+  setHrvBpm,
+  hrvSyncEnabled = true,
+  setHrvSyncEnabled,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isSleepModalOpen, setIsSleepModalOpen] = useState(false);
+  const [isAudioSettingsOpen, setIsAudioSettingsOpen] = useState(false);
+  const [sleepRemainingSeconds, setSleepRemainingSeconds] = useState<number | null>(null);
+  const [sleepFadeEnabled, setSleepFadeEnabled] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [progress, setProgress] = useState(0);
   const [currentTimeFormatted, setCurrentTimeFormatted] = useState('0:00');
   const [durationFormatted, setDurationFormatted] = useState('0:00');
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  const isSleepActive = sleepRemainingSeconds !== null;
+
+  // Handle Quantum Sleep Timer countdown & gentle fadeout
+  useEffect(() => {
+    if (!isSleepActive) return;
+
+    const interval = setInterval(() => {
+      setSleepRemainingSeconds((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          // Timer finished: stop audio & restore volumes
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.volume = voiceVolume;
+          }
+          if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+          }
+          globalSolfeggioSynth.stopTone();
+          globalSolfeggioSynth.stopRain();
+          globalSolfeggioSynth.setVolume(carrierVolume);
+          globalSolfeggioSynth.setRainVolume(rainVolume);
+          setIsPlaying(false);
+          return null;
+        }
+
+        const next = prev - 1;
+        // Apply gentle S-curve cosine fadeout during last 60 seconds
+        if (sleepFadeEnabled && next <= 60) {
+          const factor = calculateFadeVolumeFactor(next, 60);
+          if (audioRef.current) {
+            audioRef.current.volume = voiceVolume * factor;
+          }
+          globalSolfeggioSynth.setVolume(carrierVolume * factor);
+          if (isRainEnabled) {
+            globalSolfeggioSynth.setRainVolume(rainVolume * factor);
+          }
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isSleepActive, sleepFadeEnabled, voiceVolume, carrierVolume, rainVolume, isRainEnabled, setIsPlaying]);
+
+  const handleStartSleepTimer = (minutes: number, enableFade: boolean) => {
+    setSleepRemainingSeconds(minutes * 60);
+    setSleepFadeEnabled(enableFade);
+  };
+
+  const handleCancelSleepTimer = () => {
+    setSleepRemainingSeconds(null);
+    if (audioRef.current) audioRef.current.volume = voiceVolume;
+    globalSolfeggioSynth.setVolume(carrierVolume);
+    globalSolfeggioSynth.setRainVolume(rainVolume);
+  };
 
   // Initialize or update HTML audio element if audioBase64 exists
   useEffect(() => {
@@ -100,10 +189,22 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
         if (!loopMode) {
           setIsPlaying(false);
           setProgress(0);
+          globalSolfeggioSynth.stopRain();
         }
       };
+
+      // If user had initiated playback, start real audio element immediately upon arrival
+      if (isPlaying) {
+        audioRef.current.play().then(() => {
+          if (audioRef.current) {
+            globalSolfeggioSynth.attachAudioElement(audioRef.current);
+          }
+        }).catch((err) => {
+          console.warn('Play after Gemini 3.8 synthesis:', err);
+        });
+      }
     }
-  }, [currentAffirmation, loopMode, playbackSpeed, setIsPlaying, voiceVolume]);
+  }, [currentAffirmation, loopMode, playbackSpeed, isPlaying, setIsPlaying, voiceVolume]);
 
   // Sync volume, speed, and loop mode to audio element
   useEffect(() => {
@@ -127,19 +228,26 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
         window.speechSynthesis.cancel();
       }
       globalSolfeggioSynth.stopTone();
+      globalSolfeggioSynth.stopRain();
       setIsPlaying(false);
     } else {
       // Play
       setIsPlaying(true);
 
-      // Start Solfeggio carrier tone if enabled
+      const bPreset = getBrainwavePreset(binauralBand);
+      // Start Solfeggio carrier tone if enabled with selected binaural beat
       if (carrierEnabled) {
-        globalSolfeggioSynth.startTone(currentAffirmation.frequencyHz, 7.83, carrierVolume);
+        globalSolfeggioSynth.startTone(currentAffirmation.frequencyHz, bPreset.hz, carrierVolume);
       } else {
         globalSolfeggioSynth.resumeContext();
       }
 
-      // If we have Gemini WAV audio, play it
+      // Start crisp rainfall sound bed if enabled
+      if (isRainEnabled) {
+        globalSolfeggioSynth.startRain(rainVolume);
+      }
+
+      // If we have Gemini 3.8 WAV audio, play it directly
       if (currentAffirmation.audioBase64 && audioRef.current) {
         try {
           globalSolfeggioSynth.attachAudioElement(audioRef.current);
@@ -147,10 +255,15 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
         } catch (e) {
           console.warn('Audio play interrupted:', e);
         }
-      } else if (onRequestSpeechGen && !currentAffirmation.audioBase64) {
-        // Fallback: use Web Speech API immediately so there is zero delay, while optionally requesting Gemini TTS
-        playWithWebSpeech(currentAffirmation.quantumText);
-      } else {
+      } else if (!currentAffirmation.audioBase64 && onRequestSpeechGen) {
+        // Synthesize Gemini 3.8 realistic human audio immediately
+        try {
+          await onRequestSpeechGen();
+        } catch (err) {
+          console.warn('Fallback to client voice if offline:', err);
+          playWithWebSpeech(currentAffirmation.quantumText);
+        }
+      } else if (!currentAffirmation.audioBase64) {
         playWithWebSpeech(currentAffirmation.quantumText);
       }
     }
@@ -179,6 +292,7 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
       } else {
         setIsPlaying(false);
         if (!carrierEnabled) globalSolfeggioSynth.stopTone();
+        globalSolfeggioSynth.stopRain();
       }
     };
 
@@ -227,66 +341,118 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
       </div>
 
       {/* Main Control Strip */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 sm:py-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 lg:gap-5">
           {/* Current Affirmation Info */}
-          <div className="flex items-center space-x-3 min-w-0 flex-1">
-            <div className="w-11 h-11 rounded-xl bg-[#EAFBF5] border border-[#2DD4BF]/40 flex items-center justify-center text-[#009B87] shrink-0">
+          <div className="flex items-center space-x-3 min-w-[240px] md:min-w-[300px] lg:min-w-[340px] flex-1">
+            <div className="w-10 h-10 rounded-xl bg-[#EAFBF5] border border-[#2DD4BF]/40 flex items-center justify-center text-[#009B87] shrink-0">
               <Sparkles className="w-5 h-5 text-[#009B87]" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center space-x-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#009B87] bg-[#EAFBF5] px-1.5 py-0.5 rounded">
+              <div className="flex items-center space-x-2 whitespace-nowrap overflow-hidden">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#009B87] bg-[#EAFBF5] px-2 py-0.5 rounded shrink-0">
                   {currentAffirmation.frequencyHz}Hz High-Frequency Spoken Audio
                 </span>
                 {currentAffirmation.audioBase64 ? (
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-medium">
-                    Gemini 24kHz Spoken WAV
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-semibold shrink-0 flex items-center space-x-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                    <span>Gemini 3.8 Realistic Human Voice (24kHz)</span>
+                  </span>
+                ) : isGeneratingAudio ? (
+                  <span className="text-[10px] bg-[#EAFBF5] text-[#009B87] px-2 py-0.5 rounded font-bold shrink-0 flex items-center space-x-1 animate-pulse border border-[#2DD4BF]/50">
+                    <div className="w-2.5 h-2.5 border-2 border-[#009B87] border-t-transparent rounded-full animate-spin" />
+                    <span>Synthesizing Gemini 3.8 Human Voice...</span>
                   </span>
                 ) : (
-                  <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.2 rounded font-medium">
-                    Dynamic Spoken Audio
+                  <span className="text-[10px] bg-[#FAF9F6] border border-[#E5E9E7] text-[#626B78] px-2 py-0.5 rounded font-medium shrink-0">
+                    Gemini 3.8 Voice Ready
                   </span>
                 )}
               </div>
-              <p className="text-[13px] font-medium text-[#171D27] truncate mt-0.5">
+              <p
+                className="text-[13px] font-medium text-[#171D27] truncate mt-1"
+                title={currentAffirmation.quantumText}
+              >
                 &ldquo;{currentAffirmation.quantumText}&rdquo;
               </p>
-              {/* Mobile reactive amplitude visualizer */}
-              <ReactiveAmplitudeVisualizer
+            </div>
+
+            {/* Mobile Breathing Orb right in header */}
+            <div className="flex md:hidden shrink-0">
+              <QuantumBreathingOrb
                 isPlaying={isPlaying}
-                barCount={10}
-                height={16}
-                showDecibels={false}
-                className="flex md:hidden mt-1.5 py-0.5 w-fit"
+                frequencyHz={currentAffirmation.frequencyHz}
+                compact={true}
+                showLabel={false}
+                hrvBpm={hrvBpm}
+                setHrvBpm={setHrvBpm}
+                hrvSyncEnabled={hrvSyncEnabled}
+                setHrvSyncEnabled={setHrvSyncEnabled}
               />
             </div>
           </div>
 
-          {/* Desktop Reactive Audio Amplitude Visualizer */}
-          <div className="hidden md:flex items-center shrink-0">
-            <ReactiveAmplitudeVisualizer
-              isPlaying={isPlaying}
-              barCount={16}
-              height={26}
-              showDecibels={true}
-            />
-          </div>
+        {/* Desktop Middle Visualizer & Breathing Orb */}
+        <div className="hidden xl:flex items-center space-x-2.5 shrink-0">
+          <ReactiveAmplitudeVisualizer
+            isPlaying={isPlaying}
+            barCount={10}
+            height={22}
+            showDecibels={false}
+            className="py-1 px-2.5"
+          />
+          <div className="h-5 w-px bg-[#EEF1EF]" />
+          <QuantumBreathingOrb
+            isPlaying={isPlaying}
+            frequencyHz={currentAffirmation.frequencyHz}
+            compact={false}
+            showLabel={true}
+            hrvBpm={hrvBpm}
+            setHrvBpm={setHrvBpm}
+            hrvSyncEnabled={hrvSyncEnabled}
+            setHrvSyncEnabled={setHrvSyncEnabled}
+          />
+        </div>
 
+        {/* Controls & Mixer Group */}
+        <div className="flex items-center justify-between lg:justify-end gap-2 sm:gap-3 shrink-0 pt-2 lg:pt-0 border-t border-[#EEF1EF] lg:border-t-0">
           {/* Center Playback Controls */}
-          <div className="flex items-center justify-center space-x-3 shrink-0">
+          <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
             {/* Loop Toggle */}
             <button
               onClick={() => setLoopMode(!loopMode)}
               aria-label="Toggle Loop Mode"
-              className={`p-2 rounded-lg text-xs font-semibold transition-colors ${
+              className={`p-1.5 sm:p-2 rounded-lg text-xs font-semibold transition-colors ${
                 loopMode
                   ? 'bg-[#EAFBF5] text-[#009B87] border border-[#2DD4BF]/50'
                   : 'text-[#626B78] hover:bg-[#F7FAF8]'
               }`}
               title={loopMode ? 'Loop active (continuous subconscious entrainment)' : 'Loop off'}
             >
-              <Repeat className="w-4 h-4" />
+              <Repeat className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </button>
+
+            {/* Quantum Sleep Timer button */}
+            <button
+              onClick={() => setIsSleepModalOpen(true)}
+              aria-label="Quantum Sleep Timer"
+              className={`p-1.5 sm:p-2 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 ${
+                sleepRemainingSeconds !== null
+                  ? 'bg-[#EAFBF5] text-[#009B87] border border-[#2DD4BF]/60 shadow-2xs font-bold'
+                  : 'text-[#626B78] hover:bg-[#F7FAF8]'
+              }`}
+              title={
+                sleepRemainingSeconds !== null
+                  ? `Quantum Sleep Timer: ${formatSleepCountdown(sleepRemainingSeconds)} remaining (Click to adjust)`
+                  : 'Quantum Sleep Timer (Schedule playback stop)'
+              }
+            >
+              <Moon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${sleepRemainingSeconds !== null ? 'text-[#009B87] fill-[#009B87]/20 animate-pulse' : ''}`} />
+              {sleepRemainingSeconds !== null && (
+                <span className="font-mono text-[10px] sm:text-[11px] text-[#009B87]">
+                  {formatSleepCountdown(sleepRemainingSeconds)}
+                </span>
+              )}
             </button>
 
             {/* Play/Pause Button */}
@@ -294,14 +460,14 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
               onClick={togglePlay}
               disabled={isGeneratingAudio}
               aria-label={isPlaying ? 'Pause affirmation audio' : 'Play affirmation audio'}
-              className="w-12 h-12 rounded-full bg-[#009B87] hover:bg-[#007F73] text-white flex items-center justify-center shadow-md hover:shadow-lg transition-all transform active:scale-95 disabled:opacity-50"
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#009B87] hover:bg-[#007F73] text-white flex items-center justify-center shadow-md hover:shadow-lg transition-all transform active:scale-95 disabled:opacity-50"
             >
               {isGeneratingAudio ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : isPlaying ? (
-                <Pause className="w-5 h-5 fill-current" />
+                <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
               ) : (
-                <Play className="w-5 h-5 fill-current ml-0.5" />
+                <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current ml-0.5" />
               )}
             </button>
 
@@ -317,19 +483,19 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
                 }
               }}
               aria-label="Replay affirmation"
-              className="p-2 rounded-lg text-[#626B78] hover:text-[#171D27] hover:bg-[#F7FAF8] transition-colors"
+              className="p-1.5 sm:p-2 rounded-lg text-[#626B78] hover:text-[#171D27] hover:bg-[#F7FAF8] transition-colors"
               title="Replay from beginning"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
             {/* Speed Selector */}
-            <div className="flex items-center space-x-1 bg-[#FAF9F6] border border-[#E5E9E7] p-0.5 rounded-lg text-[11px] font-semibold text-[#626B78]">
+            <div className="flex items-center space-x-0.5 sm:space-x-1 bg-[#FAF9F6] border border-[#E5E9E7] p-0.5 rounded-lg text-[10px] sm:text-[11px] font-semibold text-[#626B78]">
               {[0.8, 1.0, 1.2].map((s) => (
                 <button
                   key={s}
                   onClick={() => setPlaybackSpeed(s)}
-                  className={`px-1.5 py-0.5 rounded ${
+                  className={`px-1 sm:px-1.5 py-0.5 rounded ${
                     playbackSpeed === s
                       ? 'bg-white text-[#009B87] shadow-2xs font-bold'
                       : 'hover:text-[#171D27]'
@@ -365,7 +531,8 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
                   const next = !carrierEnabled;
                   setCarrierEnabled(next);
                   if (next && isPlaying) {
-                    globalSolfeggioSynth.startTone(currentAffirmation.frequencyHz, 7.83, carrierVolume);
+                    const preset = getBrainwavePreset(binauralBand);
+                    globalSolfeggioSynth.startTone(currentAffirmation.frequencyHz, preset.hz, carrierVolume);
                   } else {
                     globalSolfeggioSynth.stopTone();
                   }
@@ -394,12 +561,51 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
               />
             </div>
 
+            {/* Quick Rain Toggle */}
+            <button
+              onClick={() => {
+                const next = !isRainEnabled;
+                setIsRainEnabled(next);
+                if (next && isPlaying) {
+                  globalSolfeggioSynth.startRain(rainVolume);
+                } else if (!next) {
+                  globalSolfeggioSynth.stopRain();
+                }
+              }}
+              aria-label="Toggle crisp rainfall sound bed"
+              className={`p-1.5 sm:p-2 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 ${
+                isRainEnabled
+                  ? 'bg-[#EAFBF5] text-[#009B87] border border-[#2DD4BF]/60 shadow-2xs font-bold'
+                  : 'text-[#626B78] hover:bg-[#F7FAF8] border border-transparent'
+              }`}
+              title={
+                isRainEnabled
+                  ? `Crisp Rainfall Active (${Math.round(rainVolume * 100)}%) - Click to mute`
+                  : 'Crisp Rainfall Sound Bed (Click to enable)'
+              }
+            >
+              <CloudRain className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isRainEnabled ? 'text-[#009B87]' : ''}`} />
+            </button>
+
+            {/* Neuro-Acoustic Audio Settings (Binaural Beats & Rain) */}
+            <button
+              onClick={() => setIsAudioSettingsOpen(true)}
+              aria-label="Open Neuro-Acoustic Audio Settings"
+              className="p-1.5 sm:p-2 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 bg-[#FAF9F6] border border-[#E5E9E7] hover:border-[#2DD4BF]/60 text-[#171D27] hover:bg-[#FFFFFF]"
+              title="Open Neuro-Acoustic Audio Settings: Binaural Beat & Rainfall Bed"
+            >
+              <Headphones className="w-3.5 h-3.5 text-[#009B87]" />
+              <span className="hidden xl:inline text-[11px] font-semibold text-[#005F58]">
+                {getBrainwavePreset(binauralBand).name} {getBrainwavePreset(binauralBand).hz}Hz
+              </span>
+            </button>
+
             {/* Download WAV button */}
             <button
               onClick={handleDownloadWav}
               aria-label="Export Master WAV audio file"
               className="p-2 rounded-lg text-[#626B78] hover:text-[#009B87] hover:bg-[#EAFBF5] transition-colors border border-transparent hover:border-[#2DD4BF]/40"
-              title="Export Master WAV (Voice + Carrier Bed)"
+              title="Export Master WAV (Voice + Carrier Bed + Rain)"
             >
               <Download className="w-4 h-4" />
             </button>
@@ -417,6 +623,36 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
           </div>
         </div>
       </div>
+    </div>
+
+      {/* Neuro-Acoustic Audio Settings Modal */}
+      <AudioSettingsModal
+        isOpen={isAudioSettingsOpen}
+        onClose={() => setIsAudioSettingsOpen(false)}
+        activeCarrierHz={currentAffirmation?.frequencyHz || 888}
+        currentBinauralBand={binauralBand}
+        onSelectBinauralBand={(band) => {
+          setBinauralBand(band);
+          const p = getBrainwavePreset(band);
+          globalSolfeggioSynth.setBinauralBeat(p.hz);
+        }}
+        isRainEnabled={isRainEnabled}
+        onToggleRain={(enabled) => {
+          setIsRainEnabled(enabled);
+          if (enabled && isPlaying) {
+            globalSolfeggioSynth.startRain(rainVolume);
+          } else if (!enabled) {
+            globalSolfeggioSynth.stopRain();
+          }
+        }}
+        rainVolume={rainVolume}
+        onChangeRainVolume={(vol) => {
+          setRainVolume(vol);
+          globalSolfeggioSynth.setRainVolume(vol);
+        }}
+        playbackSpeed={playbackSpeed}
+        onChangeSpeed={setPlaybackSpeed}
+      />
 
       {/* Master WAV Export Modal */}
       <ExportWavModal
@@ -426,6 +662,19 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
         defaultVoiceVolume={voiceVolume}
         defaultCarrierVolume={carrierVolume}
         defaultCarrierEnabled={carrierEnabled}
+        defaultBinauralBand={binauralBand}
+        defaultIncludeRain={isRainEnabled}
+        defaultRainVolume={rainVolume}
+      />
+
+      {/* Quantum Sleep Timer Modal */}
+      <QuantumSleepTimerModal
+        isOpen={isSleepModalOpen}
+        onClose={() => setIsSleepModalOpen(false)}
+        remainingSeconds={sleepRemainingSeconds}
+        onStartTimer={handleStartSleepTimer}
+        onCancelTimer={handleCancelSleepTimer}
+        initialFadeoutEnabled={sleepFadeEnabled}
       />
     </div>
   );

@@ -1,11 +1,11 @@
 'use client';
 
 import React from 'react';
-import { Waves, Sparkles, Radio, BookOpen, BookmarkCheck, Volume2, VolumeX } from 'lucide-react';
+import { Waves, Sparkles, Radio, BookOpen, BookmarkCheck, Volume2, VolumeX, Layers } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'studio' | 'library' | 'frequencies' | 'science';
-  setActiveTab: (tab: 'studio' | 'library' | 'frequencies' | 'science') => void;
+  activeTab: 'studio' | 'deck' | 'library' | 'frequencies' | 'science';
+  setActiveTab: (tab: 'studio' | 'deck' | 'library' | 'frequencies' | 'science') => void;
   carrierActive: boolean;
   toggleCarrier: () => void;
   activeHz: number;
@@ -54,6 +54,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>Transmuter</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('deck')}
+              className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors flex items-center space-x-1.5 ${
+                activeTab === 'deck'
+                  ? 'bg-[#EAFBF5] text-[#009B87] border border-[#2DD4BF]/40 font-semibold shadow-xs'
+                  : 'text-[#626B78] hover:text-[#171D27] hover:bg-[#F7FAF8]'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Quantum Deck</span>
             </button>
 
             <button

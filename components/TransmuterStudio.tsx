@@ -18,6 +18,10 @@ import {
   Flame,
   ArrowRight,
   ShieldCheck,
+  Headphones,
+  CloudRain,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import {
   QuantumAffirmationResult,
@@ -27,6 +31,12 @@ import {
   QuantumParadigmId,
 } from '@/lib/quantum-engine';
 import { ExportWavModal } from './ExportWavModal';
+import { VoiceAffirmationUploader } from './VoiceAffirmationUploader';
+import {
+  BINAURAL_BEAT_PRESETS,
+  BrainwaveBand,
+  getBrainwavePreset,
+} from '@/lib/binaural-beats';
 
 interface TransmuterStudioProps {
   onAffirmationGenerated: (affirmation: QuantumAffirmationResult) => void;
@@ -34,6 +44,12 @@ interface TransmuterStudioProps {
   onPlayAffirmation: (affirmation: QuantumAffirmationResult) => void;
   currentResult: QuantumAffirmationResult | null;
   savedIds: string[];
+  binauralBand?: BrainwaveBand;
+  onSelectBinauralBand?: (band: BrainwaveBand) => void;
+  isRainEnabled?: boolean;
+  onToggleRain?: (enabled: boolean) => void;
+  rainVolume?: number;
+  onChangeRainVolume?: (vol: number) => void;
 }
 
 export const TransmuterStudio: React.FC<TransmuterStudioProps> = ({
@@ -42,13 +58,22 @@ export const TransmuterStudio: React.FC<TransmuterStudioProps> = ({
   onPlayAffirmation,
   currentResult,
   savedIds,
+  binauralBand = 'theta',
+  onSelectBinauralBand,
+  isRainEnabled = false,
+  onToggleRain,
+  rainVolume = 0.25,
+  onChangeRainVolume,
 }) => {
   const [inputText, setInputText] = useState(
     'I want to stop stressing about finances and attract huge abundance and financial freedom.'
   );
   const [selectedParadigm, setSelectedParadigm] = useState<QuantumParadigmId>('timeline-collapse');
   const [selectedFrequency, setSelectedFrequency] = useState<number>(888);
-  const [selectedVoice, setSelectedVoice] = useState<string>('Kore');
+  const [selectedVoice, setSelectedVoice] = useState<string>('Fenrir');
+  const [selectedIntensity, setSelectedIntensity] = useState<string>('moderate');
+  const [selectedMood, setSelectedMood] = useState<string>('motivated');
+  const [isAmplifiedAudio, setIsAmplifiedAudio] = useState<boolean>(false);
   const [emotionalMultiplier, setEmotionalMultiplier] = useState<string>('Sovereign Inevitability');
   const [isLoading, setIsLoading] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -68,17 +93,129 @@ export const TransmuterStudio: React.FC<TransmuterStudioProps> = ({
           paradigm: selectedParadigm,
           frequencyHz: selectedFrequency,
           emotionalMultiplier,
+          mood: selectedMood,
+          intensity: selectedIntensity,
         }),
       });
 
       if (!res.ok) throw new Error('Failed to transmute affirmation');
 
-      const data = await res.json();
+      const data: QuantumAffirmationResult = await res.json();
       onAffirmationGenerated(data);
+      onSaveToLibrary(data); // Auto-save to library
+
+      // Automatically synthesize realistic Gemini 3.8 human voice immediately
+      setIsGeneratingWav(true);
+      try {
+        const speechRes = await fetch('/api/affirmation/speech', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: data.quantumText,
+            voiceName: selectedVoice,
+            frequencyHz: data.frequencyHz,
+            style: `Warm, deeply authentic human voice, realistic breathing cadence, calm soothing tone, and deep ${emotionalMultiplier.toLowerCase()}`,
+          }),
+        });
+        if (speechRes.ok) {
+          const speechData = await speechRes.json();
+          if (speechData.audioBase64) {
+            const withAudio = {
+              ...data,
+              audioBase64: speechData.audioBase64,
+              voiceName: speechData.voice || selectedVoice,
+            };
+            onAffirmationGenerated(withAudio);
+            onPlayAffirmation(withAudio); // Automatically play after generation
+          }
+        }
+      } catch (speechErr) {
+        console.warn('Auto Gemini 3.8 voice generation:', speechErr);
+      } finally {
+        setIsGeneratingWav(false);
+      }
     } catch (err) {
       console.error('Error generating affirmation:', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleVoiceTranscribeComplete = async (
+    text: string,
+    recommendedParadigm?: QuantumParadigmId,
+    autoTransmute: boolean = false
+  ) => {
+    if (!text.trim()) return;
+    setInputText(text);
+
+    const paradigmToUse = recommendedParadigm || selectedParadigm;
+    if (recommendedParadigm) {
+      setSelectedParadigm(recommendedParadigm);
+    }
+
+    if (autoTransmute) {
+      setIsLoading(true);
+      try {
+        const res = await fetch('/api/affirmation/transmute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            originalText: text.trim(),
+            paradigm: paradigmToUse,
+            frequencyHz: selectedFrequency,
+            emotionalMultiplier,
+            mood: selectedMood,
+            intensity: selectedIntensity,
+          }),
+        });
+
+        if (res.ok) {
+          const transmutedData: QuantumAffirmationResult = await res.json();
+          onAffirmationGenerated(transmutedData);
+          onSaveToLibrary(transmutedData); // Auto-save
+
+          // Now synthesize spoken TTS immediately
+          setIsGeneratingWav(true);
+          try {
+            const speechRes = await fetch('/api/affirmation/speech', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                text: transmutedData.quantumText,
+                voiceName: selectedVoice,
+                frequencyHz: transmutedData.frequencyHz,
+                style: `Rhythmic, steady, high-frequency quantum incantation with deliberate breath cadence and deep ${emotionalMultiplier.toLowerCase()}`,
+                amplified: isAmplifiedAudio,
+              }),
+            });
+
+            if (speechRes.ok) {
+              const speechData = await speechRes.json();
+              if (speechData.audioBase64) {
+                const withAudio = {
+                  ...transmutedData,
+                  audioBase64: speechData.audioBase64,
+                  voiceName: speechData.voice || selectedVoice,
+                };
+                onAffirmationGenerated(withAudio);
+                onPlayAffirmation(withAudio);
+                return;
+              }
+            }
+          } catch (speechErr) {
+            console.warn('Auto TTS error:', speechErr);
+          } finally {
+            setIsGeneratingWav(false);
+          }
+
+          onPlayAffirmation(transmutedData);
+        }
+      } catch (err) {
+        console.error('Error auto transmuting voice:', err);
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -152,6 +289,9 @@ export const TransmuterStudio: React.FC<TransmuterStudioProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Form: Input & Controls (7 Cols) */}
         <div className="lg:col-span-7 space-y-6">
+          {/* Personal Voice Audio Ingestion & Transcription */}
+          <VoiceAffirmationUploader onTranscribeComplete={handleVoiceTranscribeComplete} />
+
           {/* Affirmation Input Card */}
           <div className="bg-[#FFFFFF] p-6 rounded-2xl border border-[#E5E9E7] shadow-[0_1px_3px_rgba(16,24,40,0.04)]">
             <div className="flex items-center justify-between mb-3">
@@ -277,23 +417,72 @@ export const TransmuterStudio: React.FC<TransmuterStudioProps> = ({
 
               {/* Spoken Voice Persona */}
               <div>
-                <label className="block text-[12px] font-semibold text-[#171D27] mb-1.5">
-                  Spoken Incantation Voice
+                <label className="block text-[12px] font-semibold text-[#171D27] mb-1.5 flex items-center justify-between">
+                  <span>Gemini 3.8 Realistic Human Voice</span>
+                  <span className="text-[10px] font-bold text-[#009B87] bg-[#EAFBF5] px-1.5 py-0.5 rounded">
+                    Flagship 3.8 TTS
+                  </span>
                 </label>
                 <select
                   value={selectedVoice}
                   onChange={(e) => setSelectedVoice(e.target.value)}
                   className="w-full p-2.5 rounded-xl border border-[#E5E9E7] bg-[#FAF9F6] text-[13px] text-[#171D27] focus:outline-none focus:ring-2 focus:ring-[#009B87]/20"
                 >
-                  <option value="Kore">Kore • Harmonic & Serene</option>
-                  <option value="Zephyr">Zephyr • Clear & Sovereign</option>
-                  <option value="Fenrir">Fenrir • Deep Resonant Authority</option>
-                  <option value="Puck">Puck • Inspiring & Dynamic</option>
-                  <option value="Charon">Charon • Grounded Ancient Gravitas</option>
+                  <option value="Kore">Kore • Warm, Soothing Natural Female</option>
+                  <option value="Zephyr">Zephyr • Grounded, Conversational Male</option>
+                  <option value="Fenrir">Fenrir • Deep Resonant Baritone</option>
+                  <option value="Puck">Puck • Dynamic, Expressive & Inspiring</option>
+                  <option value="Charon">Charon • Meditative Ancient Gravitas</option>
                 </select>
                 <p className="text-[11px] text-[#626B78] mt-1">
-                  High-frequency rhythmic meter for sleep & morning priming
+                  Realistic human prosody with natural diaphragmatic breathing and warm acoustic presence
                 </p>
+              </div>
+
+              {/* Intensity & Mood Selection */}
+              <div className="sm:col-span-2 grid grid-cols-2 gap-4">
+                <div>
+                   <label className="block text-[12px] font-semibold text-[#171D27] mb-1.5">
+                    Quantum Language Intensity
+                  </label>
+                  <select
+                    value={selectedIntensity}
+                    onChange={(e) => setSelectedIntensity(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#E5E9E7] bg-[#FAF9F6] text-[13px] text-[#171D27] focus:outline-none focus:ring-2 focus:ring-[#009B87]/20"
+                  >
+                    <option value="subtle">Subtle</option>
+                    <option value="moderate">Moderate</option>
+                    <option value="intense">Intense</option>
+                  </select>
+                </div>
+                <div>
+                   <label className="block text-[12px] font-semibold text-[#171D27] mb-1.5">
+                    Current Mood / Desired State
+                  </label>
+                  <select
+                    value={selectedMood}
+                    onChange={(e) => setSelectedMood(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#E5E9E7] bg-[#FAF9F6] text-[13px] text-[#171D27] focus:outline-none focus:ring-2 focus:ring-[#009B87]/20"
+                  >
+                    <option value="happy">Happy / Uplifted</option>
+                    <option value="stressed">Stressed / Needing Calm</option>
+                    <option value="motivated">Motivated / Focused</option>
+                    <option value="peaceful">Peaceful / Grounded</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Audio Amplification Toggle */}
+              <div className="sm:col-span-2 pt-2 border-t border-[#EEF1EF]">
+                <label className="flex items-center space-x-2 text-[12px] font-semibold text-[#171D27]">
+                  <input
+                    type="checkbox"
+                    checked={isAmplifiedAudio}
+                    onChange={(e) => setIsAmplifiedAudio(e.target.checked)}
+                    className="w-4 h-4 accent-[#009B87]"
+                  />
+                  <span>Amplify High-Frequency Audio (Higher Impact)</span>
+                </label>
               </div>
 
               {/* Emotional Multiplier */}
@@ -321,6 +510,72 @@ export const TransmuterStudio: React.FC<TransmuterStudioProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Binaural Beat Modulation Preset Selector */}
+              <div className="sm:col-span-2 pt-2 border-t border-[#EEF1EF]">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[12px] font-semibold text-[#171D27] flex items-center space-x-1.5">
+                    <Headphones className="w-3.5 h-3.5 text-[#009B87]" />
+                    <span>Binaural Beat Entrainment Mode</span>
+                  </label>
+                  <span className="text-[10px] font-mono font-bold text-[#009B87] bg-[#EAFBF5] px-2 py-0.5 rounded">
+                    +{getBrainwavePreset(binauralBand).hz} Hz Detune
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {BINAURAL_BEAT_PRESETS.map((preset) => {
+                    const isSelected = binauralBand === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => onSelectBinauralBand?.(preset.id)}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          isSelected
+                            ? 'bg-[#EAFBF5] border-[#009B87] text-[#009B87] shadow-2xs font-bold'
+                            : 'bg-[#FAF9F6] border-[#EEF1EF] text-[#626B78] hover:bg-[#FFFFFF]'
+                        }`}
+                      >
+                        <div className="text-[11px] font-bold text-[#171D27] flex items-center justify-between">
+                          <span>{preset.name}</span>
+                          <span className="text-[10px] text-[#009B87] font-mono">{preset.hz}Hz</span>
+                        </div>
+                        <div className="text-[10px] text-[#89919B] mt-0.5">{preset.state.split(' ')[0]}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Crisp Rainfall Sound Bed Option */}
+              <div className="sm:col-span-2 p-3 rounded-xl bg-[#FAF9F6] border border-[#EEF1EF] flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                    isRainEnabled ? 'bg-[#EAFBF5] text-[#009B87]' : 'bg-white text-[#89919B] border border-[#EEF1EF]'
+                  }`}>
+                    <CloudRain className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-[12px] font-semibold text-[#171D27]">
+                      Crisp Rainfall Sound Bed
+                    </div>
+                    <div className="text-[10px] text-[#626B78]">
+                      Algorithmic high-frequency rain texture for subconscious focus
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onToggleRain?.(!isRainEnabled)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                    isRainEnabled
+                      ? 'bg-[#009B87] text-white shadow-xs'
+                      : 'bg-white text-[#626B78] border border-[#E5E9E7] hover:bg-[#FAF9F6]'
+                  }`}
+                >
+                  {isRainEnabled ? 'Active' : 'Enable'}
+                </button>
               </div>
             </div>
 
@@ -413,11 +668,27 @@ export const TransmuterStudio: React.FC<TransmuterStudioProps> = ({
               {/* Action Buttons */}
               <div className="space-y-2.5">
                 <button
-                  onClick={() => onPlayAffirmation(currentResult)}
-                  className="w-full py-3 px-4 rounded-xl bg-[#009B87] hover:bg-[#007F73] text-white text-[13px] font-semibold flex items-center justify-center space-x-2 shadow-xs transition-all"
+                  onClick={async () => {
+                    if (!currentResult.audioBase64) {
+                      await handleGenerateVoiceWav();
+                    } else {
+                      onPlayAffirmation(currentResult);
+                    }
+                  }}
+                  disabled={isGeneratingWav}
+                  className="w-full py-3 px-4 rounded-xl bg-[#009B87] hover:bg-[#007F73] text-white text-[13px] font-semibold flex items-center justify-center space-x-2 shadow-xs transition-all disabled:opacity-75"
                 >
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>Play Rhythmic Spoken Audio ({currentResult.frequencyHz}Hz Bed)</span>
+                  {isGeneratingWav ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Synthesizing Gemini 3.8 Human Voice...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 fill-current" />
+                      <span>Play Realistic Spoken Audio ({currentResult.frequencyHz}Hz Bed)</span>
+                    </>
+                  )}
                 </button>
 
                 {!currentResult.audioBase64 && (
@@ -429,12 +700,12 @@ export const TransmuterStudio: React.FC<TransmuterStudioProps> = ({
                     {isGeneratingWav ? (
                       <>
                         <div className="w-4 h-4 border-2 border-[#009B87] border-t-transparent rounded-full animate-spin" />
-                        <span>Synthesizing 24kHz Spoken WAV...</span>
+                        <span>Synthesizing Realistic Gemini 3.8 Voice...</span>
                       </>
                     ) : (
                       <>
                         <Volume2 className="w-4 h-4" />
-                        <span>Synthesize High-Res Gemini Voice WAV</span>
+                        <span>Generate Gemini 3.8 Realistic Human Voice WAV</span>
                       </>
                     )}
                   </button>
@@ -499,6 +770,9 @@ export const TransmuterStudio: React.FC<TransmuterStudioProps> = ({
         onClose={() => setIsExportModalOpen(false)}
         affirmation={currentResult}
         defaultCarrierEnabled={true}
+        defaultBinauralBand={binauralBand}
+        defaultIncludeRain={isRainEnabled}
+        defaultRainVolume={rainVolume}
       />
     </div>
   );

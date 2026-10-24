@@ -3,6 +3,8 @@
  * Pure WAV encoder and OfflineAudioContext compositor for combined Voice + Solfeggio Carrier Tone.
  */
 
+import { generateRainAudioData } from './rain-generator';
+
 export interface MasterMixOptions {
   voiceBase64Wav?: string;
   frequencyHz: number;
@@ -11,6 +13,8 @@ export interface MasterMixOptions {
   carrierVolume?: number;
   includeVoice?: boolean;
   includeCarrier?: boolean;
+  includeRain?: boolean;
+  rainVolume?: number;
   repeatCount?: number; // e.g. 1, 3, or 5 loops
   sampleRate?: number;
   estimatedDurationSeconds?: number;
@@ -240,7 +244,33 @@ export async function renderMasterWav(options: MasterMixOptions): Promise<{
     }
   }
 
-  // 3. Render Offline Mix
+  // 3. Render Crisp Rainfall Sound Bed if requested
+  if (options.includeRain && (options.rainVolume ?? 0.25) > 0) {
+    const rainVol = options.rainVolume ?? 0.25;
+    const rainGain = offlineCtx.createGain();
+    rainGain.gain.setValueAtTime(0.0001, 0);
+    rainGain.gain.linearRampToValueAtTime(rainVol, 1.0);
+    rainGain.gain.setValueAtTime(rainVol, Math.max(1.0, totalDuration - 1.5));
+    rainGain.gain.linearRampToValueAtTime(0.0001, totalDuration);
+
+    const rainDuration = Math.min(10, totalDuration);
+    const rainData = generateRainAudioData(rainDuration, sampleRate);
+    const rainBuf = offlineCtx.createBuffer(2, rainData.leftChannel.length, sampleRate);
+    rainBuf.getChannelData(0).set(rainData.leftChannel);
+    rainBuf.getChannelData(1).set(rainData.rightChannel);
+
+    const rainSource = offlineCtx.createBufferSource();
+    rainSource.buffer = rainBuf;
+    rainSource.loop = true;
+
+    rainSource.connect(rainGain);
+    rainGain.connect(offlineCtx.destination);
+
+    rainSource.start(0);
+    rainSource.stop(totalDuration);
+  }
+
+  // 4. Render Offline Mix
   const renderedBuffer = await offlineCtx.startRendering();
 
   // 4. Encode to 16-bit PCM RIFF Stereo WAV

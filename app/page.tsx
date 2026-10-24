@@ -6,6 +6,7 @@ import { TransmuterStudio } from '@/components/TransmuterStudio';
 import { ResonanceLibrary } from '@/components/ResonanceLibrary';
 import { FrequencyMatrixView } from '@/components/FrequencyMatrixView';
 import { LinguisticGuideView } from '@/components/LinguisticGuideView';
+import { QuantumManifestationDeck } from '@/components/QuantumManifestationDeck';
 import { AudioPlayerBar } from '@/components/AudioPlayerBar';
 import {
   QuantumAffirmationResult,
@@ -13,6 +14,7 @@ import {
   PRESET_AFFIRMATIONS,
 } from '@/lib/quantum-engine';
 import { globalSolfeggioSynth } from '@/lib/audio-player';
+import { BrainwaveBand, getBrainwavePreset } from '@/lib/binaural-beats';
 
 // Curated default library exemplars
 const INITIAL_LIBRARY: QuantumAffirmationResult[] = [
@@ -36,10 +38,15 @@ const INITIAL_LIBRARY: QuantumAffirmationResult[] = [
     'multiverse-convergence',
     639
   ),
+  transmuteDeterministically(
+    'I want to develop a magnetic sexual aura that radiates confidence and attraction',
+    'bio-electric-somatic',
+    432
+  ),
 ];
 
 export default function HomePage() {
-  const [activeTab, setActiveTab] = useState<'studio' | 'library' | 'frequencies' | 'science'>('studio');
+  const [activeTab, setActiveTab] = useState<'studio' | 'deck' | 'library' | 'frequencies' | 'science'>('studio');
   const [library, setLibrary] = useState<QuantumAffirmationResult[]>(INITIAL_LIBRARY);
   const [currentAffirmation, setCurrentAffirmation] = useState<QuantumAffirmationResult | null>(INITIAL_LIBRARY[0]);
 
@@ -54,6 +61,20 @@ export default function HomePage() {
   const [isPlayingContinuous, setIsPlayingContinuous] = useState<boolean>(false);
   const [continuousIndex, setContinuousIndex] = useState<number>(0);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState<boolean>(false);
+
+  // Heart Rate Variability (HRV) Breathing Sync State (Optimal Coherence 5.5 BPM)
+  const [hrvBpm, setHrvBpm] = useState<number>(5.5);
+  const [hrvSyncEnabled, setHrvSyncEnabled] = useState<boolean>(true);
+
+  // Binaural Beat & Rain Bed State
+  const [binauralBand, setBinauralBand] = useState<BrainwaveBand>('theta');
+  const [isRainEnabled, setIsRainEnabled] = useState<boolean>(true);
+  const [rainVolume, setRainVolume] = useState<number>(0.25);
+
+  // Keep Solfeggio Synth LFO synchronized with HRV state
+  useEffect(() => {
+    globalSolfeggioSynth.setHrvSync(hrvSyncEnabled, hrvBpm);
+  }, [hrvBpm, hrvSyncEnabled]);
 
   const handleAffirmationGenerated = (affirmation: QuantumAffirmationResult) => {
     setCurrentAffirmation(affirmation);
@@ -74,14 +95,50 @@ export default function HomePage() {
     }
   };
 
-  const handlePlayAffirmation = (affirmation: QuantumAffirmationResult) => {
+  const handlePlayAffirmation = async (affirmation: QuantumAffirmationResult) => {
     setCurrentAffirmation(affirmation);
     setActiveHz(affirmation.frequencyHz);
     setIsPlaying(true);
     setIsPlayingContinuous(false);
 
     if (carrierEnabled) {
-      globalSolfeggioSynth.startTone(affirmation.frequencyHz, 7.83, carrierVolume);
+      const preset = getBrainwavePreset(binauralBand);
+      globalSolfeggioSynth.startTone(affirmation.frequencyHz, preset.hz, carrierVolume);
+    }
+    if (isRainEnabled) {
+      globalSolfeggioSynth.startRain(rainVolume);
+    }
+
+    // Automatically synthesize realistic Gemini 3.8 human voice if not yet cached
+    if (!affirmation.audioBase64) {
+      setIsGeneratingAudio(true);
+      try {
+        const res = await fetch('/api/affirmation/speech', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: affirmation.quantumText,
+            voiceName: affirmation.voiceName || 'Kore',
+            frequencyHz: affirmation.frequencyHz,
+          }),
+        });
+        const data = await res.json();
+        if (data.audioBase64) {
+          const updated = {
+            ...affirmation,
+            audioBase64: data.audioBase64,
+            voiceName: data.voice || affirmation.voiceName || 'Kore',
+          };
+          setCurrentAffirmation(updated);
+          setLibrary((prev) =>
+            prev.map((item) => (item.id === updated.id ? updated : item))
+          );
+        }
+      } catch (e) {
+        console.warn('Gemini 3.8 speech synthesis error:', e);
+      } finally {
+        setIsGeneratingAudio(false);
+      }
     }
   };
 
@@ -89,7 +146,8 @@ export default function HomePage() {
     const next = !carrierEnabled;
     setCarrierEnabled(next);
     if (next && isPlaying && currentAffirmation) {
-      globalSolfeggioSynth.startTone(currentAffirmation.frequencyHz, 7.83, carrierVolume);
+      const preset = getBrainwavePreset(binauralBand);
+      globalSolfeggioSynth.startTone(currentAffirmation.frequencyHz, preset.hz, carrierVolume);
     } else {
       globalSolfeggioSynth.stopTone();
     }
@@ -121,6 +179,7 @@ export default function HomePage() {
         const updated = {
           ...currentAffirmation,
           audioBase64: data.audioBase64,
+          voiceName: data.voice || currentAffirmation.voiceName || 'Kore',
         };
         setCurrentAffirmation(updated);
         setLibrary((prev) =>
@@ -147,7 +206,7 @@ export default function HomePage() {
       />
 
       {/* Main Tab Views */}
-      <main className="flex-1 pb-32 sm:pb-36">
+      <main className="flex-1 pb-44 sm:pb-36">
         {activeTab === 'studio' && (
           <TransmuterStudio
             onAffirmationGenerated={handleAffirmationGenerated}
@@ -155,6 +214,41 @@ export default function HomePage() {
             onPlayAffirmation={handlePlayAffirmation}
             currentResult={currentAffirmation}
             savedIds={library.map((l) => l.id)}
+            binauralBand={binauralBand}
+            onSelectBinauralBand={(band) => {
+              setBinauralBand(band);
+              const p = getBrainwavePreset(band);
+              globalSolfeggioSynth.setBinauralBeat(p.hz);
+            }}
+            isRainEnabled={isRainEnabled}
+            onToggleRain={(enabled) => {
+              setIsRainEnabled(enabled);
+              if (enabled && isPlaying) {
+                globalSolfeggioSynth.startRain(rainVolume);
+              } else if (!enabled) {
+                globalSolfeggioSynth.stopRain();
+              }
+            }}
+            rainVolume={rainVolume}
+            onChangeRainVolume={(vol) => {
+              setRainVolume(vol);
+              globalSolfeggioSynth.setRainVolume(vol);
+            }}
+          />
+        )}
+
+        {activeTab === 'deck' && (
+          <QuantumManifestationDeck
+            onPlayAffirmation={handlePlayAffirmation}
+            onSaveToLibrary={handleSaveToLibrary}
+            savedIds={library.map((l) => l.id)}
+            currentAffirmationId={currentAffirmation?.id}
+            isPlaying={isPlaying}
+            onSetHrvBpm={(bpm) => {
+              setHrvBpm(bpm);
+              globalSolfeggioSynth.setHrvBpm(bpm);
+            }}
+            currentHrvBpm={hrvBpm}
           />
         )}
 
@@ -201,8 +295,24 @@ export default function HomePage() {
         setLoopMode={setLoopMode}
         playbackSpeed={playbackSpeed}
         setPlaybackSpeed={setPlaybackSpeed}
+        binauralBand={binauralBand}
+        setBinauralBand={setBinauralBand}
+        isRainEnabled={isRainEnabled}
+        setIsRainEnabled={setIsRainEnabled}
+        rainVolume={rainVolume}
+        setRainVolume={setRainVolume}
         onRequestSpeechGen={handleRequestSpeechGen}
         isGeneratingAudio={isGeneratingAudio}
+        hrvBpm={hrvBpm}
+        setHrvBpm={(bpm) => {
+          setHrvBpm(bpm);
+          globalSolfeggioSynth.setHrvBpm(bpm);
+        }}
+        hrvSyncEnabled={hrvSyncEnabled}
+        setHrvSyncEnabled={(enabled) => {
+          setHrvSyncEnabled(enabled);
+          globalSolfeggioSynth.setHrvSync(enabled, hrvBpm);
+        }}
       />
     </div>
   );

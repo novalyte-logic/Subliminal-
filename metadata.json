@@ -1,6 +1,6 @@
 {
   "name": "Novalyte AI • Quantum Leap Affirmation Engine",
   "description": "Transmute affirmations using quantum leap linguistic structures for rapid manifestation, paired with rhythmic, high-frequency spoken audio and Solfeggio carrier tones.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
